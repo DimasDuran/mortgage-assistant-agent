@@ -1,0 +1,12 @@
+.venv
+.git
+.gitlab-ci.yml
+__pycache__
+*.pyc
+.env
+.env.*
+pdf
+tests
+.pytest_cache
+.ruff_cache
+.mypy_cache

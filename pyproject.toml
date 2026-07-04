@@ -1,0 +1,75 @@
+# Vera: agente hipotecario con LangGraph.
+# Proyecto aislado con Poetry (misma leccion de reproducibilidad que CodeCritic).
+# Arquitectura por capas segun GUIA-ARQUITECTURA-AGENTE-EMPRESARIAL.md.
+
+[tool.poetry]
+name = "vera"
+version = "0.1.0"
+description = "Vera: asistente hipotecario (agente LangGraph) que responde y usa herramientas."
+authors = ["isivalle19 <isivalle19@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "vera", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+langchain = ">=1.0"           # agent framework: prebuilt create_agent, middleware, HITL
+langgraph = "^1.2"            # graph runtime under create_agent: checkpointer, persistence
+langchain-anthropic = ">=0.3" # ChatAnthropic: Claude integrated with the LangChain ecosystem
+pydantic = "^2.9"             # domain data contracts
+pydantic-settings = "^2.5"    # typed config from .env (fail-fast)
+python-dotenv = "^1.0"
+fastapi = "^0.138.2"
+uvicorn = {extras = ["standard"], version = "^0.49.0"}
+supabase = "^2.31.0"
+pyjwt = "^2.13"
+cryptography = "^44.0.0"      # encrypt sensitive fields (SSN) at the repo layer
+slowapi = "^0.1.9"            # rate-limiting for HTTP endpoints
+
+# OpenTelemetry (observability via Grafana / OTLP-compatible backends)
+opentelemetry-distro = "^0.64b0"
+opentelemetry-exporter-otlp = "^1.43.0"
+opentelemetry-instrumentation-fastapi = "^0.64b0"
+opentelemetry-instrumentation-httpx = "^0.64b0"
+opentelemetry-instrumentation-logging = "^0.64b0"
+opentelemetry-instrumentation-system-metrics = "^0.64b0"
+
+# Evals: Ragas metrics for agent tool-call quality, topic adherence, goal accuracy
+ragas = ">=0.2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+pytest-asyncio = "^0.24"
+ruff = "^0.15"
+mypy = "^1.13"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.13"
+packages = ["vera"]
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+
+# Third-party packages without complete type stubs. We still type our own code.
+[[tool.mypy.overrides]]
+module = ["langgraph.*", "langchain_core.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["opentelemetry.*"]
+ignore_missing_imports = true

@@ -1,0 +1,50 @@
+# You can override the included template(s) by including variable overrides
+# SAST customization: https://docs.gitlab.com/user/application_security/sast/#available-cicd-variables
+# Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure/
+# Dependency Scanning customization: https://docs.gitlab.com/user/application_security/dependency_scanning/dependency_scanning_sbom/#customizing-analyzer-behavior
+# Container Scanning customization: https://docs.gitlab.com/user/application_security/container_scanning/#customizing-analyzer-behavior
+# Note that environment variables can be set in several places
+# See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
+stages:
+- test
+- secret-detection
+sast:
+  stage: test
+include:
+- template: Security/SAST.gitlab-ci.yml
+- template: Security/Secret-Detection.gitlab-ci.yml
+variables:
+  SECRET_DETECTION_ENABLED: 'true'
+secret_detection:
+  stage: secret-detection
+
+# Quality gate: lint, format, types and unit tests on every push.
+quality:
+  stage: test
+  image: python:3.13
+  variables:
+    # Dummy key so Settings (fail-fast) can build; tests needing a real key are
+    # skipped. Same as running `ANTHROPIC_API_KEY=sk-test pytest` locally.
+    ANTHROPIC_API_KEY: "sk-test"
+  before_script:
+  - pip install --quiet poetry
+  - poetry install --no-interaction
+  script:
+  - poetry run ruff check src tests
+  - poetry run ruff format --check src tests
+  - poetry run mypy
+  - poetry run pytest -q
+
+# Eval regression gate: only runs when ANTHROPIC_API_KEY is set as a CI/CD
+# variable (it calls the model). Add ANTHROPIC_API_KEY (and VOYAGE_API_KEY /
+# PINECONE_API_KEY for RAG cases) in the project's CI/CD settings to enable it.
+evals:
+  stage: test
+  image: python:3.13
+  before_script:
+  - pip install --quiet poetry
+  - poetry install --no-interaction
+  script:
+  - poetry run pytest tests/test_evals.py -q
+  rules:
+  - if: '$ANTHROPIC_API_KEY'
