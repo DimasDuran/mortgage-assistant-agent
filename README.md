@@ -1,32 +1,56 @@
-# Vera
+# Mortgage Assistant Agent
 
-A mortgage application assistant, built as a LangGraph agent. Vera answers
-applicant questions about the mortgage process, looks up application status, and
-runs exact mortgage calculations (LTV, DTI) through tools.
+An AI-powered conversational agent that assists borrowers and loan officers
+throughout the mortgage origination process. Built with LangGraph, it answers
+questions about loan programs and requirements, retrieves application status,
+performs precise financial calculations (LTV, DTI), and securely escalates
+sensitive matters to human loan officers.
 
-This is a real project: it uses framework components (LangGraph's prebuilt agent,
-ChatAnthropic, tools, checkpointer) rather than hand-rolled equivalents.
+## Problem
+
+Applying for a mortgage in the United States involves complex documentation,
+eligibility criteria, and financial computations. Lenders like Bank of America
+offer detailed guidance at
+[https://www.bankofamerica.com/mortgage/home-mortgage/](https://www.bankofamerica.com/mortgage/home-mortgage/),
+but borrowers often have repetitive questions about their application status,
+loan-to-value ratios, debt-to-income limits, and program requirements.
+Meanwhile, loan officers spend a significant portion of their time on routine
+inquiries instead of high-value tasks.
+
+This agent automates the information layer: it answers questions grounded in
+the lender's knowledge base, computes ratios exactly (never estimating), tracks
+the application through its lifecycle, and hands off to a human only when
+judgment or approval is required. The result is faster response times for
+borrowers and more efficient workflows for lending teams.
 
 ## Stack
 
-- Orchestration: LangGraph (`create_react_agent`, checkpointer, HITL)
-- Model: Claude via `langchain-anthropic` (`ChatAnthropic`)
-- Validation: Pydantic / pydantic-settings
-- Packaging: Poetry
-- Quality gates: ruff, mypy, pytest
+- **Orchestration:** LangGraph (`create_react_agent`, checkpointer, HITL)
+- **Model:** Claude via `langchain-anthropic` (`ChatAnthropic`)
+- **Validation:** Pydantic / pydantic-settings
+- **API:** FastAPI with multi-tenant auth (Supabase)
+- **Observability:** OpenTelemetry (OTLP), LangSmith tracing
+- **Packaging:** Poetry
+- **Quality:** ruff, mypy, pytest
 
 ## Layout
 
 ```
 src/vera/
-  core/        # settings (pydantic-settings)
-  domain/      # entities and closed types (Pydantic)
-  llm/         # chat model construction
-  tools/       # tools the agent can call (@tool)
-  prompts/     # system prompt
-  agents/      # the agent (create_react_agent)
-  app.py       # CLI entry points
-tests/         # tool unit tests + agent build test
+  core/        # settings (pydantic-settings), pricing, encryption, telemetry
+  domain/      # entities and closed types (Pydantic, aligned to URLA/Form 1003)
+  llm/         # chat model construction with prompt caching
+  tools/       # tools the agent can call: calculations, application lookup, escalation
+  prompts/     # system prompt and LangSmith Prompt Hub integration
+  agents/      # the agent (create_react_agent with middleware)
+  services/    # application use cases, conversation memory, cost tracking
+  repositories/# persistence layer (Supabase or in-memory for dev)
+  auth/        # Supabase Auth JWT verification, role-based access, invites
+  evals/       # LLM-as-judge and Ragas evaluation suites
+  app.py       # CLI entry point
+  api.py       # FastAPI application
+tests/         # tool unit tests, agent build test, API tests, eval regression
+supabase/      # database schema
 ```
 
 ## Setup
@@ -43,6 +67,35 @@ poetry run pytest
 poetry run python -m vera.app
 ```
 
+## API
+
+```bash
+poetry run uvicorn vera.api:app --reload --port 8080
+curl -X POST localhost:8080/chat \
+  -H 'content-type: application/json' \
+  -d '{"message":"What is LTV?","thread_id":"t1"}'
+```
+
+## Evals
+
+Two complementary evaluation systems:
+
+| System | Scope | Metrics |
+|---|---|---|
+| LLM-as-judge | Single-turn, pass/fail | Correctness against criteria |
+| Ragas | Multi-turn, tool-call quality | ToolCallAccuracy, ToolCallF1, TopicAdherence, AgentGoalAccuracy |
+
+```bash
+# LLM-as-judge (local)
+python -m vera.evals.run
+
+# Ragas agent metrics (local)
+python -m vera.evals.ragas_eval
+
+# LangSmith (both)
+python -m vera.evals.langsmith_eval
+```
+
 ## Quality gates
 
 ```bash
@@ -51,55 +104,6 @@ poetry run mypy
 poetry run pytest
 ```
 
-## Evals (regression testing)
+## License
 
-The eval suite runs each case through the agent and scores the reply. Two
-evaluation systems are used side by side:
-
-### LLM-as-judge (`src/vera/evals/`)
-
-Single-turn: a question goes in, the reply is graded by a judge model (Claude
-Haiku) against a pass/fail criterion. Run locally or on LangSmith:
-
-```bash
-python -m vera.evals.run                    # local, prints pass rate
-python -m vera.evals.langsmith_eval          # syncs to LangSmith dataset + evaluates
-```
-
-### Ragas agent metrics (`src/vera/evals/ragas_*.py`)
-
-Multi-turn: evaluates tool-call quality with structured metrics. Scenarios
-define the user messages and what tools the agent *should* call:
-
-| Metric | What it measures |
-|---|---|
-| `ToolCallAccuracy` | Right tools in the right order? |
-| `ToolCallF1` | Precision/recall of tool calls vs expected |
-| `TopicAdherence` | Stays on mortgage topics? |
-| `AgentGoalAccuracyWithReference` | Achieved the user's goal? |
-
-```bash
-python -m vera.evals.ragas_eval              # local run
-python -c "from vera.evals.langsmith_eval import run_ragas_eval; run_ragas_eval()"  # logs to LangSmith
-```
-
-The Ragas evaluator uses the same agent configuration and can be extended by
-adding new scenarios in `src/vera/evals/ragas_cases.py`.
-
-### Live regression gate
-
-A pytest test (`test_ragas_eval.py`) runs the full suite when
-`VERA_RUN_LIVE_TESTS=1` is set:
-
-```bash
-VERA_RUN_LIVE_TESTS=1 pytest tests/test_ragas_eval.py -v
-```
-
-## Roadmap (phases)
-
-1. Agent + tools (this) — done.
-2. RAG: a `search_guidelines` tool over a mortgage knowledge base, with citations.
-3. Security + human-in-the-loop: domain guardrails, PII handling, indirect-injection
-   defense, escalation to a human loan officer via `interrupt`.
-4. Evals + regression testing in CI — done (see above).
-5. API (FastAPI) and deployment.
+MIT
