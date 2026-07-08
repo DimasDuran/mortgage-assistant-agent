@@ -126,6 +126,11 @@ def main() -> None:
     from vera.core.pricing import calculate_cost
 
     load_dotenv()
+    settings = get_settings()
+    logger.info(
+        "Checkpointer: %s",
+        "PostgresSaver" if settings.database_url else "MemorySaver",
+    )
     agent = build_agent()
     question = "What does occupancy type mean on a mortgage application?"
     reply, usage = chat(agent, question, "demo")
