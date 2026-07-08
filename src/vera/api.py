@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable, RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.types import Command
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -36,7 +37,7 @@ from vera.auth.dependencies import (
 )
 from vera.auth.invites import Inviter, build_supabase_inviter
 from vera.auth.tokens import AuthenticatedUser
-from vera.core.config import get_settings
+from vera.core.config import Settings, get_settings
 from vera.core.pricing import calculate_cost
 from vera.core.telemetry import instrument_fastapi, setup_telemetry
 from vera.domain.enums import ApplicationStatus, UserRole
@@ -69,6 +70,7 @@ load_dotenv()
 
 # Show OTel initialisation banner in server output.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", force=True)
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -81,7 +83,15 @@ _limiter = Limiter(
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     setup_telemetry()
     instrument_fastapi(application)
+    # Initialize persistent checkpointer + agent (built once at startup).
+    checkpointer = await _create_async_checkpointer(settings)
+    application.state.checkpointer = checkpointer
+    application.state.agent = build_agent(checkpointer=checkpointer)
     yield
+    # Cleanup: close the underlying Postgres connection, if any.
+    cp = getattr(application.state, "checkpointer", None)
+    if cp is not None and hasattr(cp, "conn"):
+        await cp.conn.close()
 
 
 app = FastAPI(
@@ -100,16 +110,63 @@ app.add_middleware(
 app.state.limiter = _limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
-_agent: Runnable | None = None
 _thread_trackers: dict[str, ThreadCostTracker] = {}
 
 
+async def _create_async_checkpointer(settings: Settings) -> BaseCheckpointSaver:
+    """Create an async Postgres checkpointer, or fall back to MemorySaver."""
+    from langgraph.checkpoint.memory import MemorySaver
+
+    db_url = settings.database_url
+    if not db_url:
+        logger.info("No DATABASE_URL set, using MemorySaver (state lost on restart)")
+        return MemorySaver()
+    try:
+        import psycopg
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    except ImportError:
+        logger.warning(
+            "psycopg or langgraph-checkpoint-postgres not installed, "
+            "using MemorySaver"
+        )
+        return MemorySaver()
+
+    try:
+        conn = await psycopg.AsyncConnection.connect(
+            db_url, connect_timeout=10
+        )
+        saver = AsyncPostgresSaver(conn)  # type: ignore[arg-type]
+        await saver.setup()
+        logger.info("Async Postgres checkpointer ready")
+        return saver
+    except (psycopg.Error, OSError):
+        logger.warning(
+            "Failed to connect Postgres checkpointer, falling back to MemorySaver",
+            exc_info=True,
+        )
+        if "conn" in locals() and conn is not None:
+            await conn.close()
+        return MemorySaver()
+
+
 def get_agent() -> Runnable:
-    """Build the agent once and reuse it (overridable in tests)."""
-    global _agent
-    if _agent is None:
-        _agent = build_agent()
-    return _agent
+    """Return the application-scoped agent built at startup.
+
+    The agent (with checkpointer) is created once during the lifespan and stored
+    on ``app.state.agent``.  Outside the request context (e.g. tests), returns
+    a fresh agent with ``MemorySaver``.
+    """
+    from typing import cast as _cast
+
+    from starlette.datastructures import State
+    state: State = getattr(app, "state", State())
+    agent: Runnable | None = _cast(
+        "Runnable | None", getattr(state, "agent", None)
+    )
+    if agent is not None:
+        return agent
+    # Outside lifespan — build on the fly with MemorySaver fallback.
+    return build_agent()
 
 
 def _get_tracker(thread_id: str, model_name: str | None = None) -> ThreadCostTracker:
