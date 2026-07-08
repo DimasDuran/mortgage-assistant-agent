@@ -83,10 +83,11 @@ applications faster.
 
 ## Stack
 
-- **Orchestration:** LangGraph (`create_react_agent`, checkpointer, HITL)
+- **Orchestration:** LangGraph (`create_react_agent`, PostgresSaver, HITL)
 - **Model:** Claude via `langchain-anthropic` (`ChatAnthropic`)
 - **Validation:** Pydantic / pydantic-settings
 - **API:** FastAPI with multi-tenant auth (Supabase)
+- **Persistence:** LangGraph checkpoints in Postgres (`PostgresSaver` with `ConnectionPool`)
 - **Observability:** OpenTelemetry (OTLP), LangSmith tracing
 - **Packaging:** Poetry
 - **Quality:** ruff, mypy, pytest
@@ -122,12 +123,14 @@ poetry run pytest
 ## Run a conversation
 
 ```bash
+# Set DATABASE_URL in .env to persist conversations across restarts
 poetry run python -m vera.app
 ```
 
 ## API
 
 ```bash
+# Set DATABASE_URL in .env for persistent conversations and HITL survival
 poetry run uvicorn vera.api:app --reload --port 8080
 curl -X POST localhost:8080/chat \
   -H 'content-type: application/json' \
