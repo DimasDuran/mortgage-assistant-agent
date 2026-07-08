@@ -14,6 +14,8 @@ packages = [{ include = "vera", from = "src" }]
 python = "^3.11"
 langchain = ">=1.0"           # agent framework: prebuilt create_agent, middleware, HITL
 langgraph = "^1.2"            # graph runtime under create_agent: checkpointer, persistence
+langgraph-checkpoint-postgres = "^3.0"  # Postgres checkpointer for production persistence
+psycopg = { version = "^3.2", extras = ["binary"] }  # required by langgraph-checkpoint-postgres
 langchain-anthropic = ">=0.3" # ChatAnthropic: Claude integrated with the LangChain ecosystem
 pydantic = "^2.9"             # domain data contracts
 pydantic-settings = "^2.5"    # typed config from .env (fail-fast)
