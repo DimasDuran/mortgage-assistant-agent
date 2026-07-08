@@ -25,8 +25,13 @@ class Settings(BaseSettings):
     # disabled (development only); set it in production.
     api_key: str | None = None
 
-    # Persistence (Supabase Postgres). If both are set, applications are stored in
-    # Supabase; otherwise an in-memory repository (seeded with demo data) is used.
+    # Persistence: LangGraph checkpoint store (Postgres).
+    # If set, conversation state survives restarts via PostgresSaver.
+    # Uses the same Postgres instance as Supabase or a dedicated one.
+    database_url: str | None = Field(default=None, validation_alias="DATABASE_URL")
+
+    # Persistence: application data (Supabase Postgres).
+    # If both are set, applications are stored in Supabase; otherwise in memory.
     supabase_url: str | None = Field(default=None, validation_alias="SUPABASE_URL")
     supabase_key: str | None = Field(default=None, validation_alias="SUPABASE_KEY")
     supabase_table: str = "applications"
